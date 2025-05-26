@@ -4,28 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/kechako/instantproxy/config"
+	"github.com/kechako/instantproxy/proxy"
+	"github.com/mattn/go-runewidth"
 	flag "github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
 )
 
 var (
-	addr string
-	cert string
-	key  string
+	addr    string
+	cert    string
+	key     string
+	cfgName string
 )
 
 func init() {
 	flag.StringVar(&addr, "http", ":8080", "IP address and port number to bind.")
 	flag.StringVar(&cert, "cert", "", "TLS certificate file")
 	flag.StringVar(&key, "key", "", "TLS private key file")
+	flag.StringVar(&cfgName, "c", "config.toml", "Configuration file name")
 }
 
 func printError(err error, exit bool) {
@@ -51,30 +56,22 @@ func accessLogHandler(next http.Handler) http.Handler {
 	})
 }
 
-func reverseProxy(target *url.URL) http.Handler {
-	return &httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetURL(target)
-			r.SetXForwarded()
-		},
-	}
-}
-
 func main() {
 	flag.Parse()
 
-	if flag.NArg() != 1 {
-		printError(errors.New("proxy target is not specified"), true)
-	}
-	target, err := url.Parse(flag.Arg(0))
+	cfg, err := config.Load(cfgName)
 	if err != nil {
-		printError(fmt.Errorf("failed to parse target URL: %w", err), true)
-		return
+		printError(err, true)
+	}
+
+	p, err := proxy.New(cfg)
+	if err != nil {
+		printError(err, true)
 	}
 
 	server := &http.Server{
 		Addr:    addr,
-		Handler: accessLogHandler(reverseProxy(target)),
+		Handler: accessLogHandler(p),
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -99,10 +96,26 @@ func main() {
 		}
 	})
 
-	fmt.Printf("Start server [%s], and forwared to [%s]\n", addr, target)
+	fmt.Printf("Start server [%s], and forwared to:\n", addr)
+	printProxyMap(p.ProxyMap())
 
 	err = group.Wait()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		printError(err, true)
 	}
+}
+
+func printProxyMap(i iter.Seq2[string, *url.URL]) {
+	maxWidth := 0
+	for host := range i {
+		w := runewidth.StringWidth(host)
+		if w > maxWidth {
+			maxWidth = w
+		}
+	}
+
+	for host, backendURL := range i {
+		fmt.Printf("  %s => %s\n", runewidth.FillRight(host, maxWidth), backendURL)
+	}
+	fmt.Println()
 }
