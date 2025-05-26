@@ -42,8 +42,8 @@ func printError(err error, exit bool) {
 
 var accessLogger = log.New(os.Stdout, "", log.LstdFlags)
 
-func accessLog(code int, size int64, method, path string) {
-	accessLogger.Printf("[%d]: %s %s (%d bytes)", code, method, path, size)
+func accessLog(code int, size int64, method, scheme, host, path string) {
+	accessLogger.Printf("[%d]: %s %s://%s%s (%d bytes)", code, method, scheme, host, path, size)
 }
 
 func accessLogHandler(next http.Handler) http.Handler {
@@ -52,7 +52,11 @@ func accessLogHandler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(&wrapper, r)
 
-		accessLog(wrapper.Code, wrapper.Size, r.Method, r.URL.Path)
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		accessLog(wrapper.Code, wrapper.Size, r.Method, scheme, r.Host, r.URL.Path)
 	})
 }
 
