@@ -48,9 +48,9 @@ func accessLog(code int, size int64, method, scheme, host, path string) {
 
 func accessLogHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wrapper := responseWriterWrapper{ResponseWriter: w}
+		wrapper := newResponseWriterWrapper(w)
 
-		next.ServeHTTP(&wrapper, r)
+		next.ServeHTTP(wrapper, r)
 
 		scheme := "http"
 		if r.TLS != nil {
